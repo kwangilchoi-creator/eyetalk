@@ -5,13 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>EyeTalk - 시선 의사소통 앱</title>
     <style>
+        * {
+            -webkit-tap-highlight-color: transparent;
+        }
+        
         body {
             margin: 0;
             padding: 0;
             overflow: hidden;
-            font-family: 'Apple SD Gothic Neo', sans-serif;
+            font-family: 'Apple SD Gothic Neo', -apple-system, BlinkMacSystemFont, sans-serif;
             background: #1a1a1a;
             user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
         }
 
         .container {
@@ -30,19 +36,34 @@
             cursor: pointer;
             border: 5px solid #333;
             box-sizing: border-box;
-            opacity: 0.3; /* 시작 전엔 흐리게 */
-            pointer-events: none; /* 시작 전엔 클릭 불가 */
-            transition: opacity 0.5s;
+            opacity: 0.3;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
         }
 
-        #yes-btn { background-color: #2ecc71; color: white; border-right: 2px solid #000; }
-        #no-btn { background-color: #e74c3c; color: white; border-left: 2px solid #000; }
+        .btn.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        #yes-btn { 
+            background-color: #2ecc71; 
+            color: white; 
+            border-right: 2px solid #000; 
+        }
+        
+        #no-btn { 
+            background-color: #e74c3c; 
+            color: white; 
+            border-left: 2px solid #000; 
+        }
 
         .btn h1 {
-            font-size: 15vw;
+            font-size: min(15vw, 120px);
             margin: 0;
             pointer-events: none;
             text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            font-weight: bold;
         }
 
         .progress-bar {
@@ -50,30 +71,33 @@
             bottom: 0;
             left: 0;
             width: 0%;
-            height: 20px;
+            height: 25px;
             background: rgba(255, 255, 255, 0.9);
-            transition: width 0.1s linear;
+            transition: width 0.05s linear;
+            box-shadow: 0 0 10px rgba(255,255,255,0.5);
         }
 
         #gaze-dot {
             position: fixed;
-            width: 20px;
-            height: 20px;
-            background: red;
-            border: 2px solid white;
+            width: 24px;
+            height: 24px;
+            background: radial-gradient(circle, #ff0000 0%, #cc0000 100%);
+            border: 3px solid white;
             border-radius: 50%;
             pointer-events: none;
             z-index: 9999;
             transform: translate(-50%, -50%);
-            display: none; 
+            display: none;
+            box-shadow: 0 0 10px rgba(255,0,0,0.8);
         }
 
-        /* 중앙 시작 버튼 및 안내 */
         #start-screen {
             position: fixed;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-            background: rgba(0,0,0,0.85);
+            top: 0; 
+            left: 0;
+            width: 100%; 
+            height: 100%;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
             display: flex;
             flex-direction: column;
             justify-content: center;
@@ -81,140 +105,209 @@
             z-index: 2000;
             color: white;
             text-align: center;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        #start-screen h2 {
+            font-size: 3rem;
+            margin-bottom: 20px;
+            background: linear-gradient(45deg, #3498db, #2ecc71);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        #guide-text {
+            font-size: 1.1rem;
+            line-height: 1.8;
+            max-width: 600px;
+            margin-bottom: 20px;
         }
 
         #start-btn {
-            background: #e67e22;
+            background: linear-gradient(135deg, #e67e22, #d35400);
             color: white;
             border: none;
-            padding: 20px 40px;
+            padding: 20px 50px;
             font-size: 1.5rem;
             border-radius: 50px;
             cursor: pointer;
             margin-top: 20px;
             font-weight: bold;
-            box-shadow: 0 4px 15px rgba(230, 126, 34, 0.4);
-            animation: pulse 2s infinite;
+            box-shadow: 0 6px 20px rgba(230, 126, 34, 0.5);
+            transition: transform 0.2s, box-shadow 0.2s;
         }
 
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.05); }
-            100% { transform: scale(1); }
+        #start-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(230, 126, 34, 0.6);
+        }
+
+        #start-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
         }
 
         #status {
             position: fixed;
-            top: 10px;
+            top: 15px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(0,0,0,0.8);
+            background: rgba(0,0,0,0.85);
             color: #fff;
-            padding: 10px 20px;
-            border-radius: 20px;
-            font-size: 1rem;
+            padding: 12px 25px;
+            border-radius: 25px;
+            font-size: 1.1rem;
             z-index: 1000;
-            display: none; /* 시작 후 표시 */
+            display: none;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
         }
 
         #reset-btn {
             position: fixed;
-            top: 50px;
+            top: 60px;
             left: 50%;
             transform: translateX(-50%);
             background: #3498db;
             color: white;
             border: none;
-            padding: 5px 12px;
-            border-radius: 5px;
+            padding: 8px 16px;
+            border-radius: 8px;
             cursor: pointer;
             z-index: 1000;
             display: none;
+            font-weight: 600;
+            box-shadow: 0 2px 10px rgba(52, 152, 219, 0.3);
         }
 
-        /* 디버그 로그창 (접었다 폈다 가능) */
+        #error-msg {
+            color: #ff6b6b;
+            margin-top: 20px;
+            font-size: 0.95rem;
+            white-space: pre-line;
+            max-width: 500px;
+        }
+
         #debug-console {
             position: fixed;
             bottom: 0;
             left: 0;
             width: 100%;
-            height: 100px;
-            background: rgba(0, 0, 0, 0.9);
+            max-height: 150px;
+            background: rgba(0, 0, 0, 0.95);
             color: #0f0;
-            font-family: monospace;
+            font-family: 'Courier New', monospace;
             font-size: 11px;
-            overflow-y: scroll;
+            overflow-y: auto;
             z-index: 3000;
             padding: 10px;
             box-sizing: border-box;
-            border-top: 2px solid #555;
-            display: none; /* 문제 해결 시 숨김 가능 */
+            border-top: 2px solid #333;
+            display: none;
+        }
+
+        .debug-line {
+            margin: 2px 0;
+            padding: 2px 0;
+        }
+
+        .debug-error {
+            color: #ff5555 !important;
+            font-weight: bold;
         }
 
         #webgazerVideoContainer {
             position: fixed !important;
             top: 10px !important;
-            left: 10px !important;
-            width: 120px !important; /* 모바일 고려해서 조금 더 작게 */
-            height: 90px !important;
-            border: 2px solid white;
-            opacity: 0.8;
-            z-index: 900;
-            display: none; /* 시작 전엔 숨김 */
+            right: 10px !important;
+            width: 160px !important;
+            height: 120px !important;
+            border: 3px solid rgba(255,255,255,0.5);
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            z-index: 999 !important;
+            display: none;
+        }
+
+        #webgazerVideoContainer canvas,
+        #webgazerVideoContainer video {
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: cover;
+        }
+
+        #webgazerFaceFeedbackBox {
+            display: none !important;
+        }
+
+        @media (max-width: 768px) {
+            #start-screen h2 {
+                font-size: 2rem;
+            }
+            
+            #guide-text {
+                font-size: 0.95rem;
+            }
+            
+            #start-btn {
+                padding: 15px 35px;
+                font-size: 1.2rem;
+            }
+            
+            #webgazerVideoContainer {
+                width: 120px !important;
+                height: 90px !important;
+            }
         }
     </style>
 </head>
 <body>
 
-    <!-- 시작 화면 -->
     <div id="start-screen">
-        <h2>EyeTalk</h2>
+        <h2>👁️ EyeTalk</h2>
         <p id="guide-text">
-            1. 카메라 권한을 허용해주세요.<br>
-            2. 얼굴을 비추고 화면을 응시하세요.<br>
+            1. 카메라 권한을 허용해주세요<br>
+            2. 얼굴을 화면에 정면으로 비추세요<br>
+            3. 양쪽 버튼을 번갈아 여러 번 응시하세요<br>
             <br>
             <span style="color: #f1c40f; font-size: 0.9rem;">
-                * 카카오톡/문자 브라우저에서는<br>작동하지 않을 수 있습니다.<br>
-                Chrome 또는 Safari로 열어주세요.
+                ⚠️ 카카오톡/문자 브라우저에서는<br>작동하지 않을 수 있습니다<br>
+                Chrome 또는 Safari로 열어주세요
             </span>
         </p>
-        <button id="start-btn" onclick="startApp()">카메라 켜기 & 시작</button>
-        <div id="error-msg" style="color: #ff6b6b; margin-top: 20px; font-size: 0.9rem; white-space: pre-line;"></div>
+        <button id="start-btn" onclick="startApp()">🎥 카메라 켜고 시작하기</button>
+        <div id="error-msg"></div>
     </div>
 
     <div id="status">준비 중...</div>
-    <button id="reset-btn" onclick="location.reload()">새로고침</button>
+    <button id="reset-btn" onclick="resetApp()">🔄 새로고침</button>
     
     <div id="gaze-dot"></div>
 
     <div class="container">
-        <div id="yes-btn" class="btn" onclick="calibrate('yes')">
+        <div id="yes-btn" class="btn" onclick="handleClick('yes')">
             <h1>예</h1>
             <div id="yes-progress" class="progress-bar"></div>
         </div>
-        <div id="no-btn" class="btn" onclick="calibrate('no')">
+        <div id="no-btn" class="btn" onclick="handleClick('no')">
             <h1>아니오</h1>
             <div id="no-progress" class="progress-bar"></div>
         </div>
     </div>
 
-    <!-- 로그창 -->
-    <div id="debug-console">
-        <div>[System] 페이지 로드됨</div>
-    </div>
+    <div id="debug-console"></div>
 
-    <!-- 1. WebGazer 경로 패치 -->
     <script>
         (function() {
             const originalFetch = window.fetch;
             window.fetch = function(input, init) {
-                // 더 광범위하게 mediapipe 경로를 감지하여 절대경로로 수정
                 if (typeof input === 'string' && input.includes('mediapipe/')) {
-                    // url에서 mediapipe/ 뒷부분만 추출
                     const pathParts = input.split('mediapipe/');
                     const fileName = pathParts[pathParts.length - 1];
                     const newUrl = 'https://webgazer.cs.brown.edu/mediapipe/' + fileName;
-                    // console.log(`[Path Fix] Redirecting: ${input} -> ${newUrl}`);
                     return originalFetch(newUrl, init);
                 }
                 return originalFetch(input, init);
@@ -222,70 +315,104 @@
         })();
     </script>
 
-    <!-- 2. WebGazer 로드 -->
     <script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
     
     <script>
-        const DWELL_TIME = 1500;
+        const DWELL_TIME = 1800;
+        const SMOOTHING_FACTOR = 0.3;
+        
         let lookStart = null;
         let currentTarget = null;
         let isSelecting = false;
         let isStarted = false;
+        let smoothX = 0;
+        let smoothY = 0;
+        let calibrationCount = 0;
+        let webgazerReady = false;
 
-        // 로그 출력 함수
         function log(msg, isError = false) {
             const consoleDiv = document.getElementById('debug-console');
-            // 에러가 발생하면 콘솔창을 강제로 보여줌
-            if (isError) consoleDiv.style.display = 'block';
+            if (isError) {
+                consoleDiv.style.display = 'block';
+            }
             
             const line = document.createElement('div');
-            line.innerText = `> ${msg}`;
-            if (isError) line.style.color = '#ff5555';
+            line.className = 'debug-line' + (isError ? ' debug-error' : '');
+            line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
             consoleDiv.appendChild(line);
             consoleDiv.scrollTop = consoleDiv.scrollHeight;
-            console.log(msg);
-
-            // 심각한 에러는 화면 중앙에도 표시
+            
             if (isError) {
-                document.getElementById('error-msg').innerText = msg;
+                console.error(msg);
+                document.getElementById('error-msg').textContent = msg;
+            } else {
+                console.log(msg);
+            }
+            
+            if (consoleDiv.children.length > 100) {
+                consoleDiv.removeChild(consoleDiv.firstChild);
             }
         }
 
-        window.onerror = function(msg, url, line) {
-            log(`Error: ${msg}`, true);
+        window.onerror = function(msg, url, line, col, error) {
+            log(`Error: ${msg} at ${line}:${col}`, true);
             return false;
         };
 
-        // 인앱 브라우저 체크
         window.onload = function() {
             const ua = navigator.userAgent.toLowerCase();
-            const isInApp = ua.includes('kakao') || ua.includes('line') || ua.includes('inapp') || ua.includes('naver');
+            const isInApp = ua.includes('kakao') || ua.includes('line') || 
+                           ua.includes('inapp') || ua.includes('naver') ||
+                           ua.includes('fban') || ua.includes('fbav');
             
             if (isInApp) {
                 document.getElementById('guide-text').innerHTML = 
-                    "<span style='color:red; font-size:1.2rem; font-weight:bold;'>⚠️ 주의: 인앱 브라우저 감지됨</span><br><br>" +
-                    "카카오톡/라인 등에서는 카메라가 차단됩니다.<br>" +
-                    "우측 상단 메뉴(⋮)를 눌러<br>'다른 브라우저로 열기'를 선택하세요.";
+                    "<span style='color:#ff6b6b; font-size:1.3rem; font-weight:bold;'>⚠️ 인앱 브라우저 감지됨</span><br><br>" +
+                    "카카오톡/라인 등에서는 카메라가 차단됩니다<br><br>" +
+                    "우측 상단 메뉴(<strong>⋮</strong> 또는 <strong>···</strong>)를 눌러<br>" +
+                    "<strong>'다른 브라우저로 열기'</strong> 또는<br>" +
+                    "<strong>'Safari로 열기'</strong>를 선택하세요";
                 document.getElementById('start-btn').style.display = 'none';
-                log("인앱 브라우저 감지됨. 실행 차단.");
-            } else if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-                log("HTTPS 아님. 리다이렉트 시도.");
-                location.href = 'https:' + window.location.href.substring(window.location.protocol.length);
+                log("인앱 브라우저 감지 - 실행 차단", true);
+                return;
             }
+            
+            if (location.protocol !== 'https:' && 
+                location.hostname !== 'localhost' && 
+                location.hostname !== '127.0.0.1') {
+                log("HTTP에서 HTTPS로 리다이렉트");
+                location.href = 'https:' + window.location.href.substring(window.location.protocol.length);
+                return;
+            }
+            
+            log("페이지 로드 완료 - 환경 체크 통과");
         };
 
-        // IndexedDB 완전 삭제 (충돌 해결 핵심)
         function clearLocalData() {
             return new Promise((resolve) => {
-                log("기존 학습 데이터 정리 중...");
+                log("기존 학습 데이터 삭제 시작");
                 try {
-                    if (window.webgazer) webgazer.clearData();
+                    if (window.webgazer && typeof webgazer.clearData === 'function') {
+                        webgazer.clearData();
+                    }
+                    
                     const req = indexedDB.deleteDatabase('webgazer');
-                    req.onsuccess = () => { log("DB 삭제 성공"); resolve(); };
-                    req.onerror = () => { log("DB 삭제 실패(무시)"); resolve(); };
-                    req.onblocked = () => { log("DB 삭제 차단됨(무시)"); resolve(); };
+                    req.onsuccess = () => { 
+                        log("IndexedDB 삭제 성공"); 
+                        resolve(); 
+                    };
+                    req.onerror = () => { 
+                        log("IndexedDB 삭제 실패 (무시하고 진행)"); 
+                        resolve(); 
+                    };
+                    req.onblocked = () => { 
+                        log("IndexedDB 삭제 차단됨 (무시하고 진행)"); 
+                        resolve(); 
+                    };
+                    
+                    setTimeout(() => resolve(), 1000);
                 } catch(e) {
-                    log("데이터 정리 중 오류(무시): " + e.message);
+                    log("데이터 삭제 중 오류 (무시): " + e.message);
                     resolve();
                 }
             });
@@ -293,51 +420,50 @@
 
         async function startApp() {
             if (isStarted) return;
+            
             const startBtn = document.getElementById('start-btn');
-            startBtn.innerText = "로딩 중... (30초 소요)";
+            startBtn.textContent = "⏳ 초기화 중... (최대 30초)";
             startBtn.disabled = true;
-            startBtn.style.opacity = 0.5;
 
             try {
-                // 0. 기존 데이터 강제 삭제
                 await clearLocalData();
+                
+                log("카메라 권한 요청 중...");
+                const constraints = {
+                    video: {
+                        facingMode: 'user',
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    }
+                };
+                
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                log("✓ 카메라 권한 획득 성공");
+                stream.getTracks().forEach(track => track.stop());
 
-                log("카메라 권한 요청...");
-
-                // 1. 카메라 권한 명시적 요청
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                log("카메라 권한 획득 성공.");
-                stream.getTracks().forEach(track => track.stop()); 
-
-                // 2. WebGazer 초기화
                 await initWebGazer();
                 
-                // 3. UI 전환
                 document.getElementById('start-screen').style.display = 'none';
                 document.getElementById('status').style.display = 'block';
                 document.getElementById('reset-btn').style.display = 'block';
-                document.getElementById('webgazerVideoContainer').style.display = 'block';
                 
-                // 버튼 활성화
                 const btns = document.querySelectorAll('.btn');
-                btns.forEach(b => {
-                    b.style.opacity = 1;
-                    b.style.pointerEvents = 'auto';
-                });
+                btns.forEach(b => b.classList.add('active'));
 
                 isStarted = true;
-                log("앱 시작 완료.");
+                log("✓ 앱 시작 완료");
 
             } catch (err) {
-                log(`[실행 실패] ${err.name}: ${err.message}`, true);
-                startBtn.innerText = "다시 시도";
+                log(`[초기화 실패] ${err.name}: ${err.message}`, true);
+                startBtn.textContent = "🔄 다시 시도";
                 startBtn.disabled = false;
-                startBtn.style.opacity = 1;
                 
                 if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-                    alert("카메라 권한이 거부되었습니다.\n브라우저 설정에서 카메라를 허용하고 다시 시도해주세요.");
+                    alert("❌ 카메라 권한이 거부되었습니다.\n\n브라우저 설정에서 카메라 권한을 허용한 후\n페이지를 새로고침해주세요.");
+                } else if (err.name === 'NotFoundError') {
+                    alert("❌ 카메라를 찾을 수 없습니다.\n\n다른 앱에서 카메라를 사용 중인지 확인해주세요.");
                 } else {
-                    alert("오류 발생: " + err.message + "\n\n다른 브라우저(Chrome/Safari)를 사용해보세요.");
+                    alert(`❌ 오류 발생: ${err.message}\n\n다른 브라우저(Chrome/Safari)를 사용하거나\n페이지를 새로고침해보세요.`);
                 }
             }
         }
@@ -347,46 +473,59 @@
                 throw new Error("WebGazer 라이브러리 로드 실패");
             }
 
-            log("WebGazer 설정 및 학습 모델 로딩...");
+            log("WebGazer 초기화 중...");
 
-            // TFFacemesh가 계속 실패하면 Fallback으로 clmtrackr 사용 가능하지만,
-            // 일단 데이터 삭제 후 TFFacemesh 재시도.
-            await webgazer.setRegression('ridge') 
-                .setTracker('TFFacemesh') 
-                .saveDataAcrossSessions(false)
-                .setGazeListener(gazeListener)
-                .begin();
+            return new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    reject(new Error("WebGazer 초기화 타임아웃 (30초)"));
+                }, 30000);
 
-            log("WebGazer.begin() 성공.");
-
-            webgazer.showVideoPreview(true) 
-                .showPredictionPoints(false) 
-                .applyKalmanFilter(true);
-            
-            // 비디오 위치 고정
-            setTimeout(() => {
-                const v = document.getElementById('webgazerVideoContainer');
-                if(v) {
-                    v.style.position = 'fixed';
-                    v.style.top = '10px';
-                    v.style.left = '10px';
-                    v.style.zIndex = '900';
-                }
-            }, 1000);
-
-            document.getElementById('status').innerText = "빨간 점을 보며 버튼을 여러 번 누르세요.";
+                webgazer
+                    .setRegression('ridge')
+                    .setTracker('TFFacemesh')
+                    .saveDataAcrossSessions(false)
+                    .setGazeListener(gazeListener)
+                    .begin()
+                    .then(() => {
+                        clearTimeout(timeout);
+                        log("✓ WebGazer 시작 성공");
+                        
+                        webgazer
+                            .showVideoPreview(true)
+                            .showPredictionPoints(false)
+                            .applyKalmanFilter(true);
+                        
+                        setTimeout(() => {
+                            const container = document.getElementById('webgazerVideoContainer');
+                            if (container) {
+                                container.style.display = 'block';
+                                log("✓ 비디오 프리뷰 표시");
+                            }
+                            webgazerReady = true;
+                            updateStatus("빨간 점을 보면서 양쪽 버튼을 번갈아 여러 번 눌러주세요");
+                            resolve();
+                        }, 1500);
+                    })
+                    .catch((err) => {
+                        clearTimeout(timeout);
+                        reject(err);
+                    });
+            });
         }
 
         function gazeListener(data, elapsedTime) {
-            if (data == null) return;
+            if (data == null || !webgazerReady) return;
+            
+            smoothX = smoothX * SMOOTHING_FACTOR + data.x * (1 - SMOOTHING_FACTOR);
+            smoothY = smoothY * SMOOTHING_FACTOR + data.y * (1 - SMOOTHING_FACTOR);
             
             const dot = document.getElementById('gaze-dot');
             dot.style.display = 'block';
-            dot.style.left = data.x + 'px';
-            dot.style.top = data.y + 'px';
+            dot.style.left = smoothX + 'px';
+            dot.style.top = smoothY + 'px';
 
             if (!isSelecting && isStarted) {
-                checkGaze(data.x, data.y);
+                checkGaze(smoothX, smoothY);
             }
         }
 
@@ -395,41 +534,64 @@
             const noBtn = document.getElementById('no-btn').getBoundingClientRect();
             let target = null;
 
-            if (x >= yesBtn.left && x <= yesBtn.right && y >= yesBtn.top && y <= yesBtn.bottom) target = 'yes';
-            else if (x >= noBtn.left && x <= noBtn.right && y >= noBtn.top && y <= noBtn.bottom) target = 'no';
+            const margin = 20;
+            if (x >= yesBtn.left - margin && x <= yesBtn.right + margin && 
+                y >= yesBtn.top - margin && y <= yesBtn.bottom + margin) {
+                target = 'yes';
+            } else if (x >= noBtn.left - margin && x <= noBtn.right + margin && 
+                       y >= noBtn.top - margin && y <= noBtn.bottom + margin) {
+                target = 'no';
+            }
 
             if (target) {
                 if (currentTarget !== target) {
                     currentTarget = target;
                     lookStart = Date.now();
-                    updateProgress('yes', 0); updateProgress('no', 0);
+                    updateProgress('yes', 0);
+                    updateProgress('no', 0);
                 } else {
                     const elapsed = Date.now() - lookStart;
                     const progress = Math.min((elapsed / DWELL_TIME) * 100, 100);
                     updateProgress(target, progress);
-                    if (elapsed >= DWELL_TIME) selectOption(target);
+                    
+                    if (elapsed >= DWELL_TIME) {
+                        selectOption(target);
+                    }
                 }
             } else {
-                currentTarget = null;
-                lookStart = null;
-                updateProgress('yes', 0); updateProgress('no', 0);
+                if (currentTarget !== null) {
+                    currentTarget = null;
+                    lookStart = null;
+                    updateProgress('yes', 0);
+                    updateProgress('no', 0);
+                }
             }
         }
 
         function updateProgress(target, percent) {
             const el = document.getElementById(`${target}-progress`);
-            if(el) el.style.width = percent + '%';
+            if (el) el.style.width = percent + '%';
         }
 
         function selectOption(choice) {
             isSelecting = true;
             updateProgress(choice, 100);
+            
             const message = choice === 'yes' ? "네" : "아니오";
-            document.getElementById('status').innerText = `선택됨: ${message}`;
+            updateStatus(`✓ 선택됨: ${message}`);
+            log(`선택 완료: ${message}`);
+            
+            calibrationCount++;
+            
+            if ('vibrate' in navigator) {
+                navigator.vibrate(100);
+            }
             
             if (window.speechSynthesis) {
                 const utterance = new SpeechSynthesisUtterance(message);
                 utterance.lang = 'ko-KR';
+                utterance.rate = 1.0;
+                utterance.pitch = 1.0;
                 window.speechSynthesis.speak(utterance);
             }
 
@@ -439,16 +601,49 @@
                 lookStart = null;
                 updateProgress('yes', 0);
                 updateProgress('no', 0);
-                document.getElementById('status').innerText = "시선을 움직여 선택하세요.";
-            }, 2000);
+                
+                if (calibrationCount < 5) {
+                    updateStatus(`계속 연습해주세요 (${calibrationCount}/5+)`);
+                } else {
+                    updateStatus("시선으로 선택하세요");
+                }
+            }, 1500);
         }
 
-        function calibrate(target) {
-            log(`${target} 버튼 클릭됨 (보정)`);
+        function handleClick(target) {
+            if (!isStarted) return;
+            
+            log(`${target} 버튼 클릭 - 보정 데이터 추가`);
+            
             const btn = document.getElementById(target + '-btn');
-            btn.style.opacity = '0.5';
-            setTimeout(() => btn.style.opacity = '1', 200);
+            btn.style.transform = 'scale(0.95)';
+            setTimeout(() => btn.style.transform = 'scale(1)', 150);
+            
+            calibrationCount++;
+            if (calibrationCount >= 3 && calibrationCount <= 10) {
+                updateStatus(`좋아요! ${calibrationCount}번 클릭 완료`);
+            }
         }
+
+        function updateStatus(text) {
+            const statusEl = document.getElementById('status');
+            if (statusEl) {
+                statusEl.textContent = text;
+            }
+        }
+
+        function resetApp() {
+            if (confirm("앱을 다시 시작하시겠습니까?")) {
+                log("앱 재시작");
+                location.reload();
+            }
+        }
+
+        window.addEventListener('beforeunload', () => {
+            if (window.webgazer) {
+                webgazer.end();
+            }
+        });
     </script>
 </body>
 </html>
