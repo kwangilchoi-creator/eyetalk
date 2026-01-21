@@ -208,8 +208,13 @@
         (function() {
             const originalFetch = window.fetch;
             window.fetch = function(input, init) {
-                if (typeof input === 'string' && input.indexOf('./mediapipe/') === 0) {
-                    const newUrl = 'https://webgazer.cs.brown.edu/' + input.substring(2);
+                // 더 광범위하게 mediapipe 경로를 감지하여 절대경로로 수정
+                if (typeof input === 'string' && input.includes('mediapipe/')) {
+                    // url에서 mediapipe/ 뒷부분만 추출
+                    const pathParts = input.split('mediapipe/');
+                    const fileName = pathParts[pathParts.length - 1];
+                    const newUrl = 'https://webgazer.cs.brown.edu/mediapipe/' + fileName;
+                    // console.log(`[Path Fix] Redirecting: ${input} -> ${newUrl}`);
                     return originalFetch(newUrl, init);
                 }
                 return originalFetch(input, init);
@@ -269,6 +274,23 @@
             }
         };
 
+        // IndexedDB 완전 삭제 (충돌 해결 핵심)
+        function clearLocalData() {
+            return new Promise((resolve) => {
+                log("기존 학습 데이터 정리 중...");
+                try {
+                    if (window.webgazer) webgazer.clearData();
+                    const req = indexedDB.deleteDatabase('webgazer');
+                    req.onsuccess = () => { log("DB 삭제 성공"); resolve(); };
+                    req.onerror = () => { log("DB 삭제 실패(무시)"); resolve(); };
+                    req.onblocked = () => { log("DB 삭제 차단됨(무시)"); resolve(); };
+                } catch(e) {
+                    log("데이터 정리 중 오류(무시): " + e.message);
+                    resolve();
+                }
+            });
+        }
+
         async function startApp() {
             if (isStarted) return;
             const startBtn = document.getElementById('start-btn');
@@ -276,13 +298,16 @@
             startBtn.disabled = true;
             startBtn.style.opacity = 0.5;
 
-            log("시작 버튼 클릭됨. 카메라 권한 요청...");
-
             try {
-                // 1. 카메라 권한 명시적 요청 (User Gesture 필수)
+                // 0. 기존 데이터 강제 삭제
+                await clearLocalData();
+
+                log("카메라 권한 요청...");
+
+                // 1. 카메라 권한 명시적 요청
                 const stream = await navigator.mediaDevices.getUserMedia({ video: true });
                 log("카메라 권한 획득 성공.");
-                stream.getTracks().forEach(track => track.stop()); // 테스트 후 끄기
+                stream.getTracks().forEach(track => track.stop()); 
 
                 // 2. WebGazer 초기화
                 await initWebGazer();
@@ -322,13 +347,12 @@
                 throw new Error("WebGazer 라이브러리 로드 실패");
             }
 
-            try { webgazer.clearData(); } catch(e) {}
-
             log("WebGazer 설정 및 학습 모델 로딩...");
 
-            // 가장 기본 설정으로 시도 (안정성 최우선)
+            // TFFacemesh가 계속 실패하면 Fallback으로 clmtrackr 사용 가능하지만,
+            // 일단 데이터 삭제 후 TFFacemesh 재시도.
             await webgazer.setRegression('ridge') 
-                .setTracker('TFFacemesh')
+                .setTracker('TFFacemesh') 
                 .saveDataAcrossSessions(false)
                 .setGazeListener(gazeListener)
                 .begin();
