@@ -3,287 +3,384 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebGazer 시선 추적 예제</title>
-    <!-- Tailwind CSS (스타일링용) -->
+    <title>MediaPipe 헤드 트래킹 (안정적인 버전)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- [수정됨] WebGazer 라이브러리 (jsDelivr CDN 사용 및 로드 이벤트 추가) -->
-    <script src="https://cdn.jsdelivr.net/npm/webgazer@2.0.1/webgazer.js" 
-            onload="onLibraryLoaded()" 
-            onerror="onLibraryError()"
-            defer></script>
-    
+    <!-- MediaPipe 라이브러리 (안정적인 CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+
     <style>
         body {
             font-family: 'Noto Sans KR', sans-serif;
-            overflow-x: hidden;
+            overflow: hidden; /* 스크롤 방지 */
             user-select: none;
         }
-        
-        #gaze-dot {
+
+        /* 커서 (시선) */
+        #cursor {
             position: fixed;
             width: 20px;
             height: 20px;
             border-radius: 50%;
-            background-color: rgba(255, 0, 0, 0.7);
-            border: 2px solid white;
+            background-color: rgba(255, 60, 60, 0.8);
+            border: 3px solid white;
+            transform: translate(-50%, -50%);
             pointer-events: none;
             z-index: 9999;
-            transform: translate(-50%, -50%);
-            display: none;
-            box-shadow: 0 0 10px rgba(255, 0, 0, 0.5);
-            transition: all 0.1s ease;
+            transition: width 0.2s, height 0.2s, background-color 0.2s;
+            box-shadow: 0 0 15px rgba(255, 0, 0, 0.4);
         }
 
-        .calibration-point {
+        /* 클릭 상태 (입 벌림) */
+        #cursor.clicking {
+            background-color: rgba(34, 197, 94, 0.9); /* Green */
             width: 30px;
             height: 30px;
-            border-radius: 50%;
-            background-color: #3b82f6;
-            border: 3px solid white;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            cursor: pointer;
-            position: absolute;
-            transition: transform 0.2s, background-color 0.2s;
-            z-index: 50;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 12px;
-            color: white;
-            font-weight: bold;
+            box-shadow: 0 0 20px rgba(34, 197, 94, 0.6);
         }
 
-        .calibration-point:active {
-            transform: scale(0.9);
-        }
-
-        .calibration-point.completed {
-            background-color: #22c55e;
-            opacity: 0.5;
+        /* 웹캠 미리보기 (거울 모드) - 크기 50% 축소 */
+        #video-container {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            width: 120px;  /* 기존 240px -> 120px */
+            height: 90px;  /* 기존 180px -> 90px */
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+            z-index: 100;
+            background-color: #000;
+            opacity: 0.8;
+            transition: opacity 0.3s;
         }
         
-        /* 로딩 스피너 애니메이션 */
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+        #video-container:hover {
+            opacity: 1;
         }
-        .spinner {
-            border: 3px solid rgba(255, 255, 255, 0.3);
-            border-radius: 50%;
-            border-top: 3px solid white;
-            width: 20px;
-            height: 20px;
-            animation: spin 1s linear infinite;
-            display: inline-block;
-            margin-right: 8px;
-            vertical-align: middle;
+        
+        .input_video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1); /* 좌우 반전 */
+        }
+
+        /* 로딩 오버레이 */
+        #loading {
+            position: fixed;
+            inset: 0;
+            background: rgba(255,255,255,0.9);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 200;
+        }
+
+        /* 슬라이더 커스텀 스타일 */
+        input[type=range] {
+            height: 4px;
+            background: #e5e7eb;
+            border-radius: 2px;
+            outline: none;
         }
     </style>
 </head>
-<body class="bg-gray-100 min-h-screen relative">
+<body class="bg-gray-100 h-screen w-screen relative">
 
-    <div id="gaze-dot"></div>
+    <!-- 커서 요소 -->
+    <div id="cursor"></div>
 
-    <div class="container mx-auto px-4 py-8 relative z-10 h-screen flex flex-col items-center justify-center">
-        
-        <div class="bg-white p-8 rounded-xl shadow-lg max-w-2xl w-full text-center space-y-6">
-            <h1 class="text-3xl font-bold text-gray-800">WebGazer 시선 추적 데모</h1>
-            
-            <p class="text-gray-600 leading-relaxed">
-                웹캠을 사용하여 시선을 추적합니다.<br>
-                정확한 인식을 위해 <strong>[추적 시작]</strong> 버튼을 누른 후,<br>
-                화면의 <strong>파란 점들을 응시하며 5번씩 클릭</strong>하여 보정해주세요.
-            </p>
+    <!-- 로딩 화면 -->
+    <div id="loading">
+        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+        <h2 class="text-xl font-bold text-gray-800">MediaPipe 모델 로딩 중...</h2>
+        <p class="text-gray-500 mt-2">잠시만 기다려주세요.</p>
+    </div>
 
-            <div class="flex justify-center gap-4">
-                <!-- 초기 상태는 비활성화 -->
-                <button id="start-btn" onclick="startTracking()" disabled class="px-6 py-3 bg-gray-400 text-white font-semibold rounded-lg shadow transition cursor-not-allowed flex items-center">
-                    <span id="btn-spinner" class="spinner"></span>
-                    <span id="btn-text">라이브러리 로딩 중...</span>
-                </button>
-                <button id="reset-btn" onclick="resetCalibration()" class="px-6 py-3 bg-gray-500 hover:bg-gray-600 text-white font-semibold rounded-lg shadow transition hidden">
-                    보정 초기화
-                </button>
-            </div>
-
-            <div id="status-msg" class="text-sm font-medium text-amber-600">
-                WebGazer 리소스를 다운로드하고 있습니다...
-            </div>
-            
-            <div class="text-xs text-gray-400 mt-4 border-t pt-4">
-                Tip: 조명이 밝은 곳에서 얼굴을 화면 중앙에 두어야 잘 인식됩니다.<br>
-                초록색 네모 박스가 얼굴에 잘 맞도록 위치를 조정해주세요.
-            </div>
+    <!-- 웹캠 컨테이너 -->
+    <div id="video-container">
+        <video class="input_video" playsinline></video>
+        <div class="absolute bottom-0 left-0 right-0 text-center text-white text-[10px] font-bold bg-black/50 py-0.5">
+            Preview
         </div>
     </div>
 
-    <!-- 보정 포인트 영역 -->
-    <div id="calibration-area" class="hidden fixed inset-0 z-40 pointer-events-none">
-        <div class="calibration-point pointer-events-auto" style="top: 50px; left: 50px;" onclick="handleCalibration(this)">5</div>
-        <div class="calibration-point pointer-events-auto" style="top: 50px; left: 50%; transform: translateX(-50%);" onclick="handleCalibration(this)">5</div>
-        <div class="calibration-point pointer-events-auto" style="top: 50px; right: 50px;" onclick="handleCalibration(this)">5</div>
+    <!-- 하단 컨트롤 바 -->
+    <div class="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur shadow-[0_-4px_20px_rgba(0,0,0,0.1)] z-50 px-6 py-4 flex flex-wrap items-center justify-between border-t border-gray-200 transition-transform duration-300">
         
-        <div class="calibration-point pointer-events-auto" style="top: 50%; left: 50px; transform: translateY(-50%);" onclick="handleCalibration(this)">5</div>
-        <div class="calibration-point pointer-events-auto" style="top: 50%; left: 50%; transform: translate(-50%, -50%);" onclick="handleCalibration(this)">5</div>
-        <div class="calibration-point pointer-events-auto" style="top: 50%; right: 50px; transform: translateY(-50%);" onclick="handleCalibration(this)">5</div>
+        <!-- 왼쪽: 타이틀 및 설명 -->
+        <div class="flex items-center space-x-4 min-w-[200px]">
+            <div>
+                <h1 class="text-lg font-bold text-gray-800 leading-tight">헤드 트래킹</h1>
+                <p class="text-xs text-gray-500 flex items-center">
+                    <span class="w-2 h-2 rounded-full bg-blue-500 inline-block mr-1"></span> 고개 이동
+                    <span class="w-2 h-2 rounded-full bg-green-500 inline-block ml-2 mr-1"></span> 입 벌려 클릭
+                </p>
+            </div>
+        </div>
 
-        <div class="calibration-point pointer-events-auto" style="bottom: 50px; left: 50px;" onclick="handleCalibration(this)">5</div>
-        <div class="calibration-point pointer-events-auto" style="bottom: 50px; left: 50%; transform: translateX(-50%);" onclick="handleCalibration(this)">5</div>
-        <div class="calibration-point pointer-events-auto" style="bottom: 50px; right: 50px;" onclick="handleCalibration(this)">5</div>
+        <!-- 중앙: 슬라이더 컨트롤 -->
+        <div class="flex flex-1 items-center justify-center space-x-8 mx-4">
+            <!-- 수평 감도 -->
+            <div class="flex flex-col w-32">
+                 <label class="text-[11px] font-semibold text-gray-600 flex justify-between mb-1">
+                     수평 감도 (X) <span id="val-x" class="text-blue-600">2.5</span>
+                 </label>
+                 <input type="range" min="1" max="5" step="0.1" value="2.5" class="w-full accent-blue-600 cursor-pointer" oninput="updateSen(this, 'x')">
+            </div>
+            <!-- 수직 감도 -->
+            <div class="flex flex-col w-32">
+                 <label class="text-[11px] font-semibold text-gray-600 flex justify-between mb-1">
+                     수직 감도 (Y) <span id="val-y" class="text-blue-600">2.5</span>
+                 </label>
+                 <input type="range" min="1" max="5" step="0.1" value="2.5" class="w-full accent-blue-600 cursor-pointer" oninput="updateSen(this, 'y')">
+            </div>
+            <!-- 반응 속도 -->
+            <div class="flex flex-col w-32">
+                 <label class="text-[11px] font-semibold text-gray-600 flex justify-between mb-1">
+                     반응 속도 <span id="val-s" class="text-blue-600">0.12</span>
+                 </label>
+                 <input type="range" min="0.01" max="0.3" step="0.01" value="0.12" class="w-full accent-gray-600 cursor-pointer" oninput="updateSmooth(this)">
+            </div>
+        </div>
+
+        <!-- 오른쪽: 재설정 버튼 -->
+        <div class="min-w-[120px] flex justify-end">
+            <button onclick="recenter()" class="px-5 py-2.5 bg-gray-800 hover:bg-gray-900 text-white rounded-lg text-sm font-semibold transition shadow-md hover:shadow-lg transform active:scale-95 whitespace-nowrap">
+                🎯 중심점 재설정
+            </button>
+        </div>
+    </div>
+
+    <!-- 네/아니오 대형 버튼 영역 -->
+    <div class="absolute inset-0 flex items-center justify-center pointer-events-none pb-20 px-8 gap-8"> <!-- pb-20으로 하단 바 공간 확보 -->
+        
+        <!-- 네 (왼쪽, 녹색) -->
+        <button onclick="speakAndFlash(this, '네')" class="pointer-events-auto flex-1 h-80 max-w-lg rounded-3xl bg-green-500 hover:bg-green-600 text-white text-8xl font-black shadow-2xl transform transition hover:scale-105 border-b-8 border-green-700 active:border-b-0 active:translate-y-2 flex items-center justify-center group">
+            <span class="group-hover:animate-pulse">⭕ 네</span>
+        </button>
+
+        <!-- 아니오 (오른쪽, 빨간색) -->
+        <button onclick="speakAndFlash(this, '아니오')" class="pointer-events-auto flex-1 h-80 max-w-lg rounded-3xl bg-red-500 hover:bg-red-600 text-white text-8xl font-black shadow-2xl transform transition hover:scale-105 border-b-8 border-red-700 active:border-b-0 active:translate-y-2 flex items-center justify-center group">
+            <span class="group-hover:animate-pulse">❌ 아니오</span>
+        </button>
+
     </div>
 
     <script>
-        let isRunning = false;
-        let isLibraryReady = false;
+        const videoElement = document.getElementsByClassName('input_video')[0];
+        const cursor = document.getElementById('cursor');
+        const loadingScreen = document.getElementById('loading');
+        
+        // 상태 변수
+        let sensitivityX = 2.5;
+        let sensitivityY = 2.5;
+        let smoothing = 0.12; // 0 ~ 1 (낮을수록 부드러움)
+        
+        // 좌표 변수 (LERP용)
+        let targetX = window.innerWidth / 2;
+        let targetY = window.innerHeight / 2;
+        let currentX = window.innerWidth / 2;
+        let currentY = window.innerHeight / 2;
 
-        // 라이브러리 로드 성공 시 호출
-        function onLibraryLoaded() {
-            isLibraryReady = true;
-            const startBtn = document.getElementById('start-btn');
-            const btnText = document.getElementById('btn-text');
-            const btnSpinner = document.getElementById('btn-spinner');
-            const statusMsg = document.getElementById('status-msg');
+        // 중심점 보정용
+        let noseOffsetX = 0;
+        let noseOffsetY = 0;
+        let isCalibrated = false;
 
-            startBtn.disabled = false;
-            startBtn.classList.remove('bg-gray-400', 'cursor-not-allowed');
-            startBtn.classList.add('bg-blue-600', 'hover:bg-blue-700');
-            btnText.innerText = "추적 시작 & 카메라 켜기";
-            btnSpinner.style.display = 'none'; // 스피너 숨김
-            statusMsg.innerText = "준비 완료. 시작 버튼을 눌러주세요.";
-        }
+        // MediaPipe FaceMesh 초기화
+        const faceMesh = new FaceMesh({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+        }});
 
-        // 라이브러리 로드 실패 시 호출
-        function onLibraryError() {
-            const statusMsg = document.getElementById('status-msg');
-            const btnText = document.getElementById('btn-text');
-            const btnSpinner = document.getElementById('btn-spinner');
-            
-            btnSpinner.style.display = 'none';
-            btnText.innerText = "로드 실패";
-            statusMsg.innerHTML = "<span class='text-red-600 font-bold'>오류: WebGazer 라이브러리를 불러오지 못했습니다.</span><br>네트워크 연결을 확인하거나 새로고침 해주세요.";
-        }
+        faceMesh.setOptions({
+            maxNumFaces: 1,
+            refineLandmarks: true, // 눈, 입술 정밀 추적
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
 
-        async function startTracking() {
-            if (isRunning) return;
-            if (!isLibraryReady) {
-                alert("아직 라이브러리가 로드되지 않았습니다.");
-                return;
-            }
+        faceMesh.onResults(onResults);
 
-            const startBtn = document.getElementById('start-btn');
-            const statusMsg = document.getElementById('status-msg');
-            const calibrationArea = document.getElementById('calibration-area');
-            const gazeDot = document.getElementById('gaze-dot');
-            const resetBtn = document.getElementById('reset-btn');
-
-            // 버튼 로딩 상태 전환
-            startBtn.disabled = true;
-            document.getElementById('btn-text').innerText = "카메라 시작 중...";
-            document.getElementById('btn-spinner').style.display = 'inline-block';
-            statusMsg.innerText = "카메라 권한을 허용하고 잠시만 기다려주세요...";
-
-            try {
-                // 이전 데이터 간섭 방지
-                window.localStorage.clear();
-
-                // WebGazer 초기화
-                await webgazer.setRegression('ridge')
-                    .setGazeListener(gazeListener)
-                    .saveDataAcrossSessions(false)
-                    .begin();
-
-                // UI 설정
-                webgazer.showVideoPreview(true)
-                    .showPredictionPoints(false)
-                    .applyKalmanFilter(true);
-
-                setupVideoPosition();
-
-                isRunning = true;
-                startBtn.classList.add('hidden');
-                resetBtn.classList.remove('hidden');
-                calibrationArea.classList.remove('hidden');
-                gazeDot.style.display = 'block';
-                statusMsg.innerHTML = "시작되었습니다! <br>정확도를 높이기 위해 <strong>파란 점들을 응시하며 클릭</strong>하세요.";
-                
-            } catch (err) {
-                console.error(err);
-                statusMsg.innerText = "실행 오류: " + err.message;
-                startBtn.disabled = false;
-                document.getElementById('btn-text').innerText = "다시 시도";
-                document.getElementById('btn-spinner').style.display = 'none';
-            }
-        }
-
-        function gazeListener(data, elapsedTime) {
-            if (data == null) return;
-            const gazeDot = document.getElementById('gaze-dot');
-            gazeDot.style.left = data.x + 'px';
-            gazeDot.style.top = data.y + 'px';
-        }
-
-        function setupVideoPosition() {
-            const videoContainer = document.getElementById('webgazerVideoContainer');
-            if (videoContainer) {
-                videoContainer.style.position = 'fixed';
-                videoContainer.style.top = '10px';
-                videoContainer.style.left = '10px';
-                videoContainer.style.zIndex = '1000';
-                videoContainer.style.borderRadius = '8px';
-                videoContainer.style.overflow = 'hidden';
-                
-                const video = videoContainer.querySelector('video');
-                if(video) {
-                    video.style.transform = 'scale(-1, 1)';
-                    video.style.width = '100%';
-                    video.style.height = '100%';
-                }
-            }
-        }
-
-        function handleCalibration(element) {
-            if (!isRunning) return;
-            let count = parseInt(element.innerText);
-            if (count > 0) {
-                count--;
-                element.innerText = count;
-                element.style.transform = 'scale(0.8)';
-                setTimeout(() => {
-                     element.style.transform = element.style.transform.replace('scale(0.8)', 'scale(1)');
-                }, 100);
-                if (count === 0) {
-                    element.classList.add('completed');
-                    element.innerText = "OK";
-                    checkAllCalibrated();
-                }
-            }
-        }
-
-        function checkAllCalibrated() {
-            const points = document.querySelectorAll('.calibration-point');
-            const allCompleted = Array.from(points).every(p => p.classList.contains('completed'));
-            if (allCompleted) {
-                document.getElementById('status-msg').innerHTML = "<span class='text-green-600 font-bold'>보정 완료!</span> 이제 화면을 자유롭게 보세요.";
-            }
-        }
-
-        function resetCalibration() {
-            webgazer.clearData(); 
-            document.querySelectorAll('.calibration-point').forEach(p => {
-                p.classList.remove('completed');
-                p.innerText = "5";
+        // 카메라 설정
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await faceMesh.send({image: videoElement});
+            },
+            width: 640,
+            height: 480
+        });
+        
+        // 카메라 시작
+        camera.start()
+            .then(() => {
+                console.log("카메라 시작됨");
+            })
+            .catch(err => {
+                console.error("카메라 오류:", err);
+                alert("카메라를 사용할 수 없습니다. 권한을 확인해주세요.");
             });
-            document.getElementById('status-msg').innerText = "보정이 초기화되었습니다. 다시 점을 클릭해주세요.";
+
+        function onResults(results) {
+            // 로딩 화면 제거
+            if (loadingScreen.style.display !== 'none') {
+                loadingScreen.style.display = 'none';
+            }
+
+            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                const landmarks = results.multiFaceLandmarks[0];
+                
+                // 1. 코 끝 좌표 (Landmark #4)
+                const nose = landmarks[4];
+                
+                // 좌표 정규화 (중심을 0,0으로 맞춤)
+                // x는 좌우 반전을 고려하여 (1 - x) - 0.5
+                let nx = (1 - nose.x) - 0.5; 
+                let ny = nose.y - 0.5;
+
+                // 최초 1회 자동 보정
+                if (!isCalibrated) {
+                    noseOffsetX = nx;
+                    noseOffsetY = ny;
+                    isCalibrated = true;
+                }
+
+                // 오프셋 적용 (현재 머리 위치를 중심으로)
+                nx -= noseOffsetX;
+                ny -= noseOffsetY;
+
+                // 2. 화면 좌표로 변환 및 감도 적용
+                // 화면 중심에서 시작
+                const screenCX = window.innerWidth / 2;
+                const screenCY = window.innerHeight / 2;
+
+                targetX = screenCX + (nx * window.innerWidth * sensitivityX);
+                targetY = screenCY + (ny * window.innerHeight * sensitivityY);
+
+                // 화면 밖으로 나가지 않게 클램핑
+                targetX = Math.max(0, Math.min(window.innerWidth, targetX));
+                targetY = Math.max(0, Math.min(window.innerHeight, targetY));
+
+                // 3. 입 벌림 감지 (클릭)
+                // 윗입술(#13)과 아랫입술(#14) 사이의 거리 계산
+                const upperLip = landmarks[13];
+                const lowerLip = landmarks[14];
+                const mouthOpenDist = Math.abs(upperLip.y - lowerLip.y);
+                
+                if (mouthOpenDist > 0.05) { // 임계값
+                    cursor.classList.add('clicking');
+                    triggerClick();
+                } else {
+                    cursor.classList.remove('clicking');
+                }
+            }
         }
 
-        window.onbeforeunload = function() {
-            if (typeof webgazer !== 'undefined') {
-                webgazer.end();
-            }
-        };
+        // 부드러운 움직임을 위한 애니메이션 루프
+        function animate() {
+            // Linear Interpolation (LERP)
+            currentX = currentX + (targetX - currentX) * smoothing;
+            currentY = currentY + (targetY - currentY) * smoothing;
 
-        window.addEventListener('resize', setupVideoPosition);
+            cursor.style.left = `${currentX}px`;
+            cursor.style.top = `${currentY}px`;
+
+            requestAnimationFrame(animate);
+        }
+        animate();
+
+        // 클릭 트리거 (가상의 클릭 이벤트 발생)
+        let lastClickTime = 0;
+        function triggerClick() {
+            const now = Date.now();
+            if (now - lastClickTime > 1000) { // 쿨다운 1초로 증가 (음성 출력 중복 방지)
+                lastClickTime = now;
+                
+                // 현재 커서 위치에 있는 요소 찾기
+                cursor.style.display = 'none';
+                const elem = document.elementFromPoint(currentX, currentY);
+                cursor.style.display = 'block';
+
+                if (elem) {
+                    // 버튼 내부의 요소가 선택될 경우를 대비해 가장 가까운 버튼 찾기
+                    const btn = elem.closest('button');
+                    if (btn) {
+                        btn.click();
+                        
+                        // 시각적 피드백
+                        const ripple = document.createElement('div');
+                        ripple.style.position = 'fixed';
+                        ripple.style.left = currentX + 'px';
+                        ripple.style.top = currentY + 'px';
+                        ripple.style.transform = 'translate(-50%, -50%)';
+                        ripple.style.width = '20px';
+                        ripple.style.height = '20px';
+                        ripple.style.background = 'rgba(34, 197, 94, 0.5)';
+                        ripple.style.borderRadius = '50%';
+                        ripple.style.pointerEvents = 'none';
+                        ripple.style.zIndex = '9998';
+                        ripple.style.transition = 'all 0.5s';
+                        document.body.appendChild(ripple);
+                        
+                        setTimeout(() => {
+                            ripple.style.width = '100px';
+                            ripple.style.height = '100px';
+                            ripple.style.opacity = '0';
+                        }, 10);
+                        setTimeout(() => ripple.remove(), 500);
+                    }
+                }
+            }
+        }
+
+        // UI 컨트롤 함수들
+        function updateSen(el, axis) {
+            const val = parseFloat(el.value);
+            document.getElementById(`val-${axis}`).innerText = val;
+            if (axis === 'x') sensitivityX = val;
+            if (axis === 'y') sensitivityY = val;
+        }
+
+        function updateSmooth(el) {
+            const val = parseFloat(el.value);
+            document.getElementById('val-s').innerText = val;
+            smoothing = val;
+        }
+
+        function recenter() {
+            isCalibrated = false;
+        }
+
+        // 음성 출력 및 효과 함수
+        function speakAndFlash(el, text) {
+            // TTS 음성 출력
+            if ('speechSynthesis' in window) {
+                // 기존 음성 취소 (중복 재생 방지)
+                window.speechSynthesis.cancel();
+                
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'ko-KR'; // 한국어 설정
+                utterance.rate = 1.0; // 속도
+                utterance.pitch = 1.0; // 톤
+                
+                window.speechSynthesis.speak(utterance);
+            }
+
+            // 시각적 효과 (눌림)
+            // Tailwind의 active 클래스와 transition이 처리하지만 JS로도 확실하게 피드백
+            // el.style.transform = 'scale(0.95)';
+            // setTimeout(() => el.style.transform = '', 150);
+        }
+
+        // 창 크기 변경 대응
+        window.addEventListener('resize', () => {
+            currentX = window.innerWidth / 2;
+            currentY = window.innerHeight / 2;
+        });
     </script>
 </body>
 </html>
