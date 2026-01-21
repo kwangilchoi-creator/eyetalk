@@ -205,7 +205,7 @@
             padding: 10px;
             box-sizing: border-box;
             border-top: 2px solid #333;
-            display: none;
+            display: block;
         }
 
         .debug-line {
@@ -239,7 +239,8 @@
             object-fit: cover;
         }
 
-        #webgazerFaceFeedbackBox {
+        #webgazerFaceFeedbackBox,
+        #webgazerGazeDot {
             display: none !important;
         }
 
@@ -301,21 +302,51 @@
     <div id="debug-console"></div>
 
     <script>
+        // MediaPipe 경로 수정 - 더 강력한 버전
         (function() {
             const originalFetch = window.fetch;
             window.fetch = function(input, init) {
-                if (typeof input === 'string' && input.includes('mediapipe/')) {
-                    const pathParts = input.split('mediapipe/');
-                    const fileName = pathParts[pathParts.length - 1];
-                    const newUrl = 'https://webgazer.cs.brown.edu/mediapipe/' + fileName;
-                    return originalFetch(newUrl, init);
+                if (typeof input === 'string') {
+                    // mediapipe 관련 모든 경로 수정
+                    if (input.includes('mediapipe/') || input.includes('node_modules')) {
+                        const fileName = input.split('/').pop();
+                        const newUrl = `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${fileName}`;
+                        console.log(`[Fetch Redirect] ${input} -> ${newUrl}`);
+                        return originalFetch(newUrl, init);
+                    }
                 }
                 return originalFetch(input, init);
             };
+
+            // XMLHttpRequest도 패치
+            const originalOpen = XMLHttpRequest.prototype.open;
+            XMLHttpRequest.prototype.open = function(method, url, ...args) {
+                if (typeof url === 'string' && (url.includes('mediapipe/') || url.includes('node_modules'))) {
+                    const fileName = url.split('/').pop();
+                    url = `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${fileName}`;
+                    console.log(`[XHR Redirect] -> ${url}`);
+                }
+                return originalOpen.call(this, method, url, ...args);
+            };
         })();
+
+        // 전역 에러 핸들러 강화
+        window.addEventListener('error', function(event) {
+            console.error('[Global Error]', event.error);
+            log(`전역 에러: ${event.error?.message || event.message}`, true);
+            event.preventDefault();
+        });
+
+        window.addEventListener('unhandledrejection', function(event) {
+            console.error('[Unhandled Promise]', event.reason);
+            log(`Promise 에러: ${event.reason?.message || event.reason}`, true);
+            event.preventDefault();
+        });
     </script>
 
-    <script src="https://webgazer.cs.brown.edu/webgazer.js"></script>
+    <script src="https://webgazer.cs.brown.edu/webgazer.js" 
+            onerror="handleWebGazerLoadError()"
+            onload="handleWebGazerLoaded()"></script>
     
     <script>
         const DWELL_TIME = 1800;
@@ -329,22 +360,40 @@
         let smoothY = 0;
         let calibrationCount = 0;
         let webgazerReady = false;
+        let webgazerLoaded = false;
+        let gazeDataCount = 0;
+
+        function handleWebGazerLoaded() {
+            webgazerLoaded = true;
+            log("✓ WebGazer 스크립트 로드 완료");
+        }
+
+        function handleWebGazerLoadError() {
+            log("✗ WebGazer 스크립트 로드 실패", true);
+            document.getElementById('error-msg').textContent = 
+                "WebGazer 라이브러리 로드 실패\n인터넷 연결을 확인해주세요";
+        }
 
         function log(msg, isError = false) {
             const consoleDiv = document.getElementById('debug-console');
-            if (isError) {
-                consoleDiv.style.display = 'block';
-            }
+            if (!consoleDiv) return;
             
             const line = document.createElement('div');
             line.className = 'debug-line' + (isError ? ' debug-error' : '');
-            line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            const timestamp = new Date().toLocaleTimeString('ko-KR', { 
+                hour12: false, 
+                hour: '2-digit', 
+                minute: '2-digit', 
+                second: '2-digit' 
+            });
+            line.textContent = `[${timestamp}] ${msg}`;
             consoleDiv.appendChild(line);
             consoleDiv.scrollTop = consoleDiv.scrollHeight;
             
             if (isError) {
                 console.error(msg);
-                document.getElementById('error-msg').textContent = msg;
+                const errorMsg = document.getElementById('error-msg');
+                if (errorMsg) errorMsg.textContent = msg;
             } else {
                 console.log(msg);
             }
@@ -360,6 +409,8 @@
         };
 
         window.onload = function() {
+            log("페이지 로드 완료");
+            
             const ua = navigator.userAgent.toLowerCase();
             const isInApp = ua.includes('kakao') || ua.includes('line') || 
                            ua.includes('inapp') || ua.includes('naver') ||
@@ -384,36 +435,52 @@
                 location.href = 'https:' + window.location.href.substring(window.location.protocol.length);
                 return;
             }
-            
-            log("페이지 로드 완료 - 환경 체크 통과");
         };
 
         function clearLocalData() {
             return new Promise((resolve) => {
                 log("기존 학습 데이터 삭제 시작");
+                
                 try {
+                    // LocalStorage 클리어
+                    localStorage.clear();
+                    sessionStorage.clear();
+                    
+                    // WebGazer 데이터 클리어
                     if (window.webgazer && typeof webgazer.clearData === 'function') {
-                        webgazer.clearData();
+                        try {
+                            webgazer.clearData();
+                            log("WebGazer 메모리 데이터 삭제");
+                        } catch (e) {
+                            log("WebGazer clearData 오류 (무시): " + e.message);
+                        }
                     }
                     
-                    const req = indexedDB.deleteDatabase('webgazer');
-                    req.onsuccess = () => { 
-                        log("IndexedDB 삭제 성공"); 
-                        resolve(); 
-                    };
-                    req.onerror = () => { 
-                        log("IndexedDB 삭제 실패 (무시하고 진행)"); 
-                        resolve(); 
-                    };
-                    req.onblocked = () => { 
-                        log("IndexedDB 삭제 차단됨 (무시하고 진행)"); 
-                        resolve(); 
+                    // IndexedDB 삭제
+                    const dbDeleteRequest = indexedDB.deleteDatabase('webgazer');
+                    
+                    dbDeleteRequest.onsuccess = () => { 
+                        log("✓ IndexedDB 삭제 성공"); 
+                        setTimeout(resolve, 500);
                     };
                     
-                    setTimeout(() => resolve(), 1000);
+                    dbDeleteRequest.onerror = () => { 
+                        log("IndexedDB 삭제 실패 (무시)"); 
+                        setTimeout(resolve, 500);
+                    };
+                    
+                    dbDeleteRequest.onblocked = () => { 
+                        log("IndexedDB 삭제 차단됨 (무시)"); 
+                        setTimeout(resolve, 500);
+                    };
+                    
+                    setTimeout(() => {
+                        resolve();
+                    }, 2000);
+                    
                 } catch(e) {
                     log("데이터 삭제 중 오류 (무시): " + e.message);
-                    resolve();
+                    setTimeout(resolve, 500);
                 }
             });
         }
@@ -421,11 +488,17 @@
         async function startApp() {
             if (isStarted) return;
             
+            if (!webgazerLoaded) {
+                log("WebGazer가 아직 로드되지 않았습니다. 잠시 후 다시 시도해주세요.", true);
+                return;
+            }
+            
             const startBtn = document.getElementById('start-btn');
             startBtn.textContent = "⏳ 초기화 중... (최대 30초)";
             startBtn.disabled = true;
 
             try {
+                // 데이터 클리어
                 await clearLocalData();
                 
                 log("카메라 권한 요청 중...");
@@ -441,8 +514,10 @@
                 log("✓ 카메라 권한 획득 성공");
                 stream.getTracks().forEach(track => track.stop());
 
+                // WebGazer 초기화
                 await initWebGazer();
                 
+                // UI 전환
                 document.getElementById('start-screen').style.display = 'none';
                 document.getElementById('status').style.display = 'block';
                 document.getElementById('reset-btn').style.display = 'block';
@@ -455,6 +530,8 @@
 
             } catch (err) {
                 log(`[초기화 실패] ${err.name}: ${err.message}`, true);
+                log(`[Stack] ${err.stack}`, true);
+                
                 startBtn.textContent = "🔄 다시 시도";
                 startBtn.disabled = false;
                 
@@ -463,66 +540,94 @@
                 } else if (err.name === 'NotFoundError') {
                     alert("❌ 카메라를 찾을 수 없습니다.\n\n다른 앱에서 카메라를 사용 중인지 확인해주세요.");
                 } else {
-                    alert(`❌ 오류 발생: ${err.message}\n\n다른 브라우저(Chrome/Safari)를 사용하거나\n페이지를 새로고침해보세요.`);
+                    alert(`❌ 오류 발생: ${err.message}\n\n페이지를 새로고침하거나\n다른 브라우저(Chrome/Safari)를 사용해보세요.`);
                 }
             }
         }
 
         async function initWebGazer() {
             if (typeof webgazer === 'undefined') {
-                throw new Error("WebGazer 라이브러리 로드 실패");
+                throw new Error("WebGazer 라이브러리가 로드되지 않았습니다");
             }
 
-            log("WebGazer 초기화 중...");
+            log("WebGazer 초기화 시작...");
+            log(`WebGazer 버전: ${webgazer.version || 'unknown'}`);
 
             return new Promise((resolve, reject) => {
                 const timeout = setTimeout(() => {
                     reject(new Error("WebGazer 초기화 타임아웃 (30초)"));
                 }, 30000);
 
-                webgazer
-                    .setRegression('ridge')
-                    .setTracker('TFFacemesh')
-                    .saveDataAcrossSessions(false)
-                    .setGazeListener(gazeListener)
-                    .begin()
-                    .then(() => {
-                        clearTimeout(timeout);
-                        log("✓ WebGazer 시작 성공");
-                        
-                        webgazer
-                            .showVideoPreview(true)
-                            .showPredictionPoints(false)
-                            .applyKalmanFilter(true);
-                        
-                        setTimeout(() => {
-                            const container = document.getElementById('webgazerVideoContainer');
-                            if (container) {
-                                container.style.display = 'block';
-                                log("✓ 비디오 프리뷰 표시");
+                try {
+                    webgazer
+                        .setRegression('ridge')
+                        .setTracker('TFFacemesh')
+                        .saveDataAcrossSessions(false)
+                        .setGazeListener((data, clock) => {
+                            try {
+                                gazeListener(data, clock);
+                            } catch (e) {
+                                log(`gazeListener 에러: ${e.message}`, true);
                             }
-                            webgazerReady = true;
-                            updateStatus("빨간 점을 보면서 양쪽 버튼을 번갈아 여러 번 눌러주세요");
-                            resolve();
-                        }, 1500);
-                    })
-                    .catch((err) => {
-                        clearTimeout(timeout);
-                        reject(err);
-                    });
+                        })
+                        .begin()
+                        .then(() => {
+                            clearTimeout(timeout);
+                            log("✓ WebGazer.begin() 성공");
+                            
+                            try {
+                                webgazer
+                                    .showVideoPreview(true)
+                                    .showPredictionPoints(false)
+                                    .applyKalmanFilter(true);
+                                
+                                log("✓ WebGazer 옵션 설정 완료");
+                            } catch (e) {
+                                log(`옵션 설정 오류: ${e.message}`, true);
+                            }
+                            
+                            setTimeout(() => {
+                                const container = document.getElementById('webgazerVideoContainer');
+                                if (container) {
+                                    container.style.display = 'block';
+                                    log("✓ 비디오 프리뷰 표시");
+                                }
+                                webgazerReady = true;
+                                updateStatus("빨간 점을 보면서 양쪽 버튼을 번갈아 여러 번 눌러주세요");
+                                resolve();
+                            }, 2000);
+                        })
+                        .catch((err) => {
+                            clearTimeout(timeout);
+                            log(`WebGazer.begin() 실패: ${err.message}`, true);
+                            reject(err);
+                        });
+                        
+                } catch (e) {
+                    clearTimeout(timeout);
+                    log(`WebGazer 설정 중 오류: ${e.message}`, true);
+                    reject(e);
+                }
             });
         }
 
         function gazeListener(data, elapsedTime) {
             if (data == null || !webgazerReady) return;
             
+            gazeDataCount++;
+            if (gazeDataCount % 100 === 0) {
+                log(`시선 데이터 ${gazeDataCount}개 수신됨`);
+            }
+            
             smoothX = smoothX * SMOOTHING_FACTOR + data.x * (1 - SMOOTHING_FACTOR);
             smoothY = smoothY * SMOOTHING_FACTOR + data.y * (1 - SMOOTHING_FACTOR);
             
             const dot = document.getElementById('gaze-dot');
-            dot.style.display = 'block';
-            dot.style.left = smoothX + 'px';
-            dot.style.top = smoothY + 'px';
+            if (dot) {
+                dot.style.display = 'block';
+                dot.style.left = smoothX + 'px';
+                dot.style.top = smoothY + 'px';
+            }
 
             if (!isSelecting && isStarted) {
                 checkGaze(smoothX, smoothY);
@@ -534,7 +639,7 @@
             const noBtn = document.getElementById('no-btn').getBoundingClientRect();
             let target = null;
 
-            const margin = 20;
+            const margin = 30;
             if (x >= yesBtn.left - margin && x <= yesBtn.right + margin && 
                 y >= yesBtn.top - margin && y <= yesBtn.bottom + margin) {
                 target = 'yes';
@@ -588,11 +693,15 @@
             }
             
             if (window.speechSynthesis) {
-                const utterance = new SpeechSynthesisUtterance(message);
-                utterance.lang = 'ko-KR';
-                utterance.rate = 1.0;
-                utterance.pitch = 1.0;
-                window.speechSynthesis.speak(utterance);
+                try {
+                    const utterance = new SpeechSynthesisUtterance(message);
+                    utterance.lang = 'ko-KR';
+                    utterance.rate = 1.0;
+                    utterance.pitch = 1.0;
+                    window.speechSynthesis.speak(utterance);
+                } catch (e) {
+                    log(`음성 출력 오류: ${e.message}`);
+                }
             }
 
             setTimeout(() => {
@@ -616,8 +725,10 @@
             log(`${target} 버튼 클릭 - 보정 데이터 추가`);
             
             const btn = document.getElementById(target + '-btn');
-            btn.style.transform = 'scale(0.95)';
-            setTimeout(() => btn.style.transform = 'scale(1)', 150);
+            if (btn) {
+                btn.style.transform = 'scale(0.95)';
+                setTimeout(() => btn.style.transform = 'scale(1)', 150);
+            }
             
             calibrationCount++;
             if (calibrationCount >= 3 && calibrationCount <= 10) {
@@ -635,13 +746,24 @@
         function resetApp() {
             if (confirm("앱을 다시 시작하시겠습니까?")) {
                 log("앱 재시작");
+                if (window.webgazer) {
+                    try {
+                        webgazer.end();
+                    } catch (e) {
+                        log(`WebGazer 종료 오류: ${e.message}`);
+                    }
+                }
                 location.reload();
             }
         }
 
         window.addEventListener('beforeunload', () => {
             if (window.webgazer) {
-                webgazer.end();
+                try {
+                    webgazer.end();
+                } catch (e) {
+                    console.log('WebGazer cleanup error:', e);
+                }
             }
         });
     </script>
