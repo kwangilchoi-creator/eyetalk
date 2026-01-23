@@ -3,399 +3,288 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MediaPipe 헤드 트래킹 (안정적인 버전)</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>아이톡 (iTalk) - AI 기반 AAC 솔루션</title>
     
-    <!-- MediaPipe 라이브러리 (안정적인 CDN) -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    <!-- CDNs: React, Babel, Tailwind, Lucide -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet">
 
     <style>
-        body {
-            font-family: 'Noto Sans KR', sans-serif;
-            overflow: hidden; /* 스크롤 방지 */
-            user-select: none;
-            touch-action: none; /* 모바일 터치 제스처 방지 */
-        }
-
-        /* 커서 (시선) */
-        #cursor {
-            position: fixed;
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            background-color: rgba(255, 60, 60, 0.8);
-            border: 3px solid white;
-            transform: translate(-50%, -50%);
-            pointer-events: none;
-            z-index: 9999;
-            transition: width 0.2s, height 0.2s, background-color 0.2s;
-            box-shadow: 0 0 15px rgba(255, 0, 0, 0.4);
-        }
-
-        /* 클릭 상태 (입 벌림) */
-        #cursor.clicking {
-            background-color: rgba(34, 197, 94, 0.9); /* Green */
-            width: 30px;
-            height: 30px;
-            box-shadow: 0 0 20px rgba(34, 197, 94, 0.6);
-        }
-
-        /* 웹캠 미리보기 (거울 모드) - 반응형 크기 조절 */
-        #video-container {
-            position: fixed;
-            top: 20px;
-            left: 20px;
-            width: 100px; /* 모바일 기본 크기 */
-            height: 75px;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
-            z-index: 100;
-            background-color: #000;
-            opacity: 0.8;
-            transition: opacity 0.3s;
-        }
-
-        /* 태블릿/데스크탑 이상에서 크기 증가 */
-        @media (min-width: 768px) {
-            #video-container {
-                width: 120px;
-                height: 90px;
-            }
-        }
-        
-        #video-container:hover {
-            opacity: 1;
-        }
-        
-        .input_video {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            transform: scaleX(-1); /* 좌우 반전 */
-        }
-
-        /* 로딩 오버레이 */
-        #loading {
-            position: fixed;
-            inset: 0;
-            background: rgba(255,255,255,0.9);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 200;
-        }
-
-        /* 슬라이더 커스텀 스타일 */
-        input[type=range] {
-            height: 4px;
-            background: #e5e7eb;
-            border-radius: 2px;
-            outline: none;
-        }
+        body { font-family: 'Noto Sans KR', sans-serif; overflow-x: hidden; user-select: none; touch-action: none; }
+        input[type=range] { height: 4px; background: #e5e7eb; border-radius: 2px; outline: none; }
+        .animate-fade-in { animation: fadeIn 0.7s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
-<body class="bg-gray-100 h-screen w-screen relative">
+<body class="bg-slate-50 text-slate-900">
+    <div id="root"></div>
 
-    <!-- 커서 요소 -->
-    <div id="cursor"></div>
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
 
-    <!-- 로딩 화면 -->
-    <div id="loading">
-        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
-        <h2 class="text-xl font-bold text-gray-800">MediaPipe 모델 로딩 중...</h2>
-        <p class="text-gray-500 mt-2">잠시만 기다려주세요.</p>
-    </div>
-
-    <!-- 웹캠 컨테이너 -->
-    <div id="video-container">
-        <video class="input_video" playsinline></video>
-        <div class="absolute bottom-0 left-0 right-0 text-center text-white text-[10px] font-bold bg-black/50 py-0.5">
-            Preview
-        </div>
-    </div>
-
-    <!-- 하단 컨트롤 바 - 반응형 레이아웃 적용 -->
-    <div class="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur shadow-[0_-4px_20px_rgba(0,0,0,0.1)] z-50 px-4 md:px-6 py-3 md:py-4 flex flex-col md:flex-row items-center md:justify-between border-t border-gray-200 transition-transform duration-300 gap-3 md:gap-0 max-h-[40vh] overflow-y-auto">
-        
-        <!-- 왼쪽: 타이틀 및 설명 -->
-        <div class="flex items-center justify-between w-full md:w-auto space-x-4 min-w-[200px]">
-            <div>
-                <h1 class="text-base md:text-lg font-bold text-gray-800 leading-tight">헤드 트래킹</h1>
-                <p class="text-[10px] md:text-xs text-gray-500 flex items-center">
-                    <span class="w-2 h-2 rounded-full bg-blue-500 inline-block mr-1"></span> 고개 이동
-                    <span class="w-2 h-2 rounded-full bg-green-500 inline-block ml-2 mr-1"></span> 입 벌려 클릭
-                </p>
-            </div>
-            <!-- 모바일에서 재설정 버튼을 상단에 배치 -->
-            <button onclick="recenter()" class="md:hidden px-3 py-1.5 bg-gray-800 text-white rounded-lg text-xs font-semibold whitespace-nowrap">
-                🎯 재설정
-            </button>
-        </div>
-
-        <!-- 중앙: 슬라이더 컨트롤 (그리드 레이아웃으로 변경하여 모바일 대응) -->
-        <div class="grid grid-cols-3 md:flex md:flex-1 items-center justify-center gap-2 md:space-x-8 md:mx-4 w-full md:w-auto">
-            <!-- 수평 감도 -->
-            <div class="flex flex-col w-full md:w-32">
-                 <label class="text-[10px] md:text-[11px] font-semibold text-gray-600 flex justify-between mb-1">
-                     수평(X) <span id="val-x" class="text-blue-600">2.5</span>
-                 </label>
-                 <input type="range" min="1" max="5" step="0.1" value="2.5" class="w-full accent-blue-600 cursor-pointer" oninput="updateSen(this, 'x')">
-            </div>
-            <!-- 수직 감도 -->
-            <div class="flex flex-col w-full md:w-32">
-                 <label class="text-[10px] md:text-[11px] font-semibold text-gray-600 flex justify-between mb-1">
-                     수직(Y) <span id="val-y" class="text-blue-600">2.5</span>
-                 </label>
-                 <input type="range" min="1" max="5" step="0.1" value="2.5" class="w-full accent-blue-600 cursor-pointer" oninput="updateSen(this, 'y')">
-            </div>
-            <!-- 반응 속도 -->
-            <div class="flex flex-col w-full md:w-32">
-                 <label class="text-[10px] md:text-[11px] font-semibold text-gray-600 flex justify-between mb-1">
-                     속도 <span id="val-s" class="text-blue-600">0.12</span>
-                 </label>
-                 <input type="range" min="0.01" max="0.3" step="0.01" value="0.12" class="w-full accent-gray-600 cursor-pointer" oninput="updateSmooth(this)">
-            </div>
-        </div>
-
-        <!-- 오른쪽: 재설정 버튼 (데스크탑용) -->
-        <div class="hidden md:flex min-w-[120px] justify-end">
-            <button onclick="recenter()" class="px-5 py-2.5 bg-gray-800 hover:bg-gray-900 text-white rounded-lg text-sm font-semibold transition shadow-md hover:shadow-lg transform active:scale-95 whitespace-nowrap">
-                🎯 중심점 재설정
-            </button>
-        </div>
-    </div>
-
-    <!-- 네/아니오 대형 버튼 영역 - 반응형 배치 (flex-col md:flex-row) -->
-    <!-- 모바일에서는 위아래(col), 데스크탑에서는 좌우(row) -->
-    <!-- 패딩을 하단 컨트롤 바 높이에 맞춰 넉넉하게 설정 (pb-40 md:pb-24) -->
-    <div class="absolute inset-0 flex flex-col md:flex-row items-center justify-center pointer-events-none pb-32 md:pb-24 px-4 md:px-8 gap-4 md:gap-8 pt-4 md:pt-0"> 
-        
-        <!-- 네 (모바일: 위 / 데스크탑: 왼쪽) -->
-        <button onclick="speakAndFlash(this, '네')" class="pointer-events-auto w-full md:flex-1 h-full max-h-[35vh] md:max-h-80 md:max-w-lg rounded-3xl bg-green-500 hover:bg-green-600 text-white text-6xl md:text-8xl font-black shadow-xl md:shadow-2xl transform transition active:scale-95 border-b-4 md:border-b-8 border-green-700 active:border-b-0 active:translate-y-2 flex items-center justify-center group">
-            <span class="group-hover:animate-pulse">⭕ 네</span>
-        </button>
-
-        <!-- 아니오 (모바일: 아래 / 데스크탑: 오른쪽) -->
-        <button onclick="speakAndFlash(this, '아니오')" class="pointer-events-auto w-full md:flex-1 h-full max-h-[35vh] md:max-h-80 md:max-w-lg rounded-3xl bg-red-500 hover:bg-red-600 text-white text-6xl md:text-8xl font-black shadow-xl md:shadow-2xl transform transition active:scale-95 border-b-4 md:border-b-8 border-red-700 active:border-b-0 active:translate-y-2 flex items-center justify-center group">
-            <span class="group-hover:animate-pulse">❌ 아니오</span>
-        </button>
-
-    </div>
-
-    <script>
-        const videoElement = document.getElementsByClassName('input_video')[0];
-        const cursor = document.getElementById('cursor');
-        const loadingScreen = document.getElementById('loading');
-        
-        // 상태 변수
-        let sensitivityX = 2.5;
-        let sensitivityY = 2.5;
-        let smoothing = 0.12; // 0 ~ 1 (낮을수록 부드러움)
-        
-        // 좌표 변수 (LERP용)
-        let targetX = window.innerWidth / 2;
-        let targetY = window.innerHeight / 2;
-        let currentX = window.innerWidth / 2;
-        let currentY = window.innerHeight / 2;
-
-        // 중심점 보정용
-        let noseOffsetX = 0;
-        let noseOffsetY = 0;
-        let isCalibrated = false;
-
-        // MediaPipe FaceMesh 초기화
-        const faceMesh = new FaceMesh({locateFile: (file) => {
-            return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
-        }});
-
-        faceMesh.setOptions({
-            maxNumFaces: 1,
-            refineLandmarks: true, // 눈, 입술 정밀 추적
-            minDetectionConfidence: 0.5,
-            minTrackingConfidence: 0.5
-        });
-
-        faceMesh.onResults(onResults);
-
-        // 카메라 설정
-        const camera = new Camera(videoElement, {
-            onFrame: async () => {
-                await faceMesh.send({image: videoElement});
-            },
-            width: 640,
-            height: 480
-        });
-        
-        // 카메라 시작
-        camera.start()
-            .then(() => {
-                console.log("카메라 시작됨");
-            })
-            .catch(err => {
-                console.error("카메라 오류:", err);
-                alert("카메라를 사용할 수 없습니다. 권한을 확인해주세요.");
-            });
-
-        function onResults(results) {
-            // 로딩 화면 제거
-            if (loadingScreen.style.display !== 'none') {
-                loadingScreen.style.display = 'none';
-            }
-
-            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
-                const landmarks = results.multiFaceLandmarks[0];
-                
-                // 1. 코 끝 좌표 (Landmark #4)
-                const nose = landmarks[4];
-                
-                // 좌표 정규화 (중심을 0,0으로 맞춤)
-                // x는 좌우 반전을 고려하여 (1 - x) - 0.5
-                let nx = (1 - nose.x) - 0.5; 
-                let ny = nose.y - 0.5;
-
-                // 최초 1회 자동 보정
-                if (!isCalibrated) {
-                    noseOffsetX = nx;
-                    noseOffsetY = ny;
-                    isCalibrated = true;
+        // --- 간단한 Lucide Icon 컴포넌트 (CDN 환경용) ---
+        const Icon = ({ name, className }) => {
+            const ref = useRef(null);
+            useEffect(() => {
+                if (window.lucide) {
+                    window.lucide.createIcons();
                 }
+            }, [name]);
+            return <i data-lucide={name} className={className}></i>;
+        };
 
-                // 오프셋 적용 (현재 머리 위치를 중심으로)
-                nx -= noseOffsetX;
-                ny -= noseOffsetY;
+        function App() {
+            const [activeTab, setActiveTab] = useState('home');
+            const [isMenuOpen, setIsMenuOpen] = useState(false);
+            
+            // 헤드 트래킹 상태
+            const videoRef = useRef(null);
+            const [isTracking, setIsTracking] = useState(false);
+            const [loadingModel, setLoadingModel] = useState(false);
+            const [sensitivity, setSensitivity] = useState({ x: 2.5, y: 2.5 });
+            const [smoothing, setSmoothing] = useState(0.12);
+            const [cursorPos, setCursorPos] = useState({ x: 0, y: 0 });
+            const [isMouthOpen, setIsMouthOpen] = useState(false);
+            
+            const targetPos = useRef({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+            const currentPos = useRef({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+            const noseOffset = useRef({ x: 0, y: 0 });
+            const isCalibrated = useRef(false);
 
-                // 2. 화면 좌표로 변환 및 감도 적용
-                // 화면 중심에서 시작
-                const screenCX = window.innerWidth / 2;
-                const screenCY = window.innerHeight / 2;
+            // 스크립트 로드 유틸리티
+            const loadScript = (src) => {
+                return new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = src;
+                    script.onload = resolve;
+                    script.onerror = reject;
+                    document.head.appendChild(script);
+                });
+            };
 
-                targetX = screenCX + (nx * window.innerWidth * sensitivityX);
-                targetY = screenCY + (ny * window.innerHeight * sensitivityY);
+            const initTracking = async () => {
+                setLoadingModel(true);
+                try {
+                    await loadScript("https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js");
+                    await loadScript("https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js");
+                    
+                    const faceMesh = new window.FaceMesh({
+                        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+                    });
 
-                // 화면 밖으로 나가지 않게 클램핑
-                targetX = Math.max(0, Math.min(window.innerWidth, targetX));
-                targetY = Math.max(0, Math.min(window.innerHeight, targetY));
+                    faceMesh.setOptions({
+                        maxNumFaces: 1,
+                        refineLandmarks: true,
+                        minDetectionConfidence: 0.5,
+                        minTrackingConfidence: 0.5
+                    });
 
-                // 3. 입 벌림 감지 (클릭)
-                // 윗입술(#13)과 아랫입술(#14) 사이의 거리 계산
-                const upperLip = landmarks[13];
-                const lowerLip = landmarks[14];
-                const mouthOpenDist = Math.abs(upperLip.y - lowerLip.y);
-                
-                if (mouthOpenDist > 0.05) { // 임계값
-                    cursor.classList.add('clicking');
-                    triggerClick();
-                } else {
-                    cursor.classList.remove('clicking');
+                    faceMesh.onResults(onResults);
+
+                    const camera = new window.Camera(videoRef.current, {
+                        onFrame: async () => {
+                            await faceMesh.send({ image: videoRef.current });
+                        },
+                        width: 640,
+                        height: 480
+                    });
+                    
+                    await camera.start();
+                    setIsTracking(true);
+                    setLoadingModel(false);
+                } catch (error) {
+                    console.error("Tracking Error:", error);
+                    alert("카메라를 불러오는데 실패했습니다.");
+                    setLoadingModel(false);
                 }
-            }
-        }
+            };
 
-        // 부드러운 움직임을 위한 애니메이션 루프
-        function animate() {
-            // Linear Interpolation (LERP)
-            currentX = currentX + (targetX - currentX) * smoothing;
-            currentY = currentY + (targetY - currentY) * smoothing;
+            function onResults(results) {
+                if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                    const landmarks = results.multiFaceLandmarks[0];
+                    const nose = landmarks[4];
+                    let nx = (1 - nose.x) - 0.5;
+                    let ny = nose.y - 0.5;
 
-            cursor.style.left = `${currentX}px`;
-            cursor.style.top = `${currentY}px`;
+                    if (!isCalibrated.current) {
+                        noseOffset.current = { x: nx, y: ny };
+                        isCalibrated.current = true;
+                    }
 
-            requestAnimationFrame(animate);
-        }
-        animate();
+                    nx -= noseOffset.current.x;
+                    ny -= noseOffset.current.y;
 
-        // 클릭 트리거 (가상의 클릭 이벤트 발생)
-        let lastClickTime = 0;
-        function triggerClick() {
-            const now = Date.now();
-            if (now - lastClickTime > 1000) { // 쿨다운 1초로 증가 (음성 출력 중복 방지)
-                lastClickTime = now;
-                
-                // 현재 커서 위치에 있는 요소 찾기
-                cursor.style.display = 'none';
-                const elem = document.elementFromPoint(currentX, currentY);
-                cursor.style.display = 'block';
+                    const screenCX = window.innerWidth / 2;
+                    const screenCY = window.innerHeight / 2;
 
-                if (elem) {
-                    // 버튼 내부의 요소가 선택될 경우를 대비해 가장 가까운 버튼 찾기
-                    const btn = elem.closest('button');
-                    if (btn) {
-                        btn.click();
-                        
-                        // 시각적 피드백
-                        const ripple = document.createElement('div');
-                        ripple.style.position = 'fixed';
-                        ripple.style.left = currentX + 'px';
-                        ripple.style.top = currentY + 'px';
-                        ripple.style.transform = 'translate(-50%, -50%)';
-                        ripple.style.width = '20px';
-                        ripple.style.height = '20px';
-                        ripple.style.background = 'rgba(34, 197, 94, 0.5)';
-                        ripple.style.borderRadius = '50%';
-                        ripple.style.pointerEvents = 'none';
-                        ripple.style.zIndex = '9998';
-                        ripple.style.transition = 'all 0.5s';
-                        document.body.appendChild(ripple);
-                        
-                        setTimeout(() => {
-                            ripple.style.width = '100px';
-                            ripple.style.height = '100px';
-                            ripple.style.opacity = '0';
-                        }, 10);
-                        setTimeout(() => ripple.remove(), 500);
+                    targetPos.current = {
+                        x: Math.max(0, Math.min(window.innerWidth, screenCX + (nx * window.innerWidth * sensitivity.x))),
+                        y: Math.max(0, Math.min(window.innerHeight, screenCY + (ny * window.innerHeight * sensitivity.y)))
+                    };
+
+                    const upperLip = landmarks[13];
+                    const lowerLip = landmarks[14];
+                    const mouthOpenDist = Math.abs(upperLip.y - lowerLip.y);
+                    
+                    if (mouthOpenDist > 0.05) {
+                        setIsMouthOpen(true);
+                        handleAutoClick();
+                    } else {
+                        setIsMouthOpen(false);
                     }
                 }
             }
+
+            useEffect(() => {
+                let animationFrame;
+                const update = () => {
+                    currentPos.current.x += (targetPos.current.x - currentPos.current.x) * smoothing;
+                    currentPos.current.y += (targetPos.current.y - currentPos.current.y) * smoothing;
+                    setCursorPos({ x: currentPos.current.x, y: currentPos.current.y });
+                    animationFrame = requestAnimationFrame(update);
+                };
+                update();
+                return () => cancelAnimationFrame(animationFrame);
+            }, [smoothing]);
+
+            const lastClickTime = useRef(0);
+            const handleAutoClick = () => {
+                const now = Date.now();
+                if (now - lastClickTime.current > 1200) {
+                    lastClickTime.current = now;
+                    const elem = document.elementFromPoint(currentPos.current.x, currentPos.current.y);
+                    if (elem && elem.closest('button')) {
+                        elem.closest('button').click();
+                    }
+                }
+            };
+
+            const speak = (text) => {
+                if ('speechSynthesis' in window) {
+                    window.speechSynthesis.cancel();
+                    const ut = new SpeechSynthesisUtterance(text);
+                    ut.lang = 'ko-KR';
+                    window.speechSynthesis.speak(ut);
+                }
+            };
+
+            return (
+                <div className="min-h-screen">
+                    {/* Navigation */}
+                    <nav className="sticky top-0 z-[100] bg-white/80 backdrop-blur-md border-b border-slate-200">
+                        <div className="max-w-7xl mx-auto px-4 h-16 flex justify-between items-center">
+                            <div className="flex items-center gap-2 cursor-pointer" onClick={() => setActiveTab('home')}>
+                                <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white">
+                                    <Icon name="volume-2" className="w-5 h-5" />
+                                </div>
+                                <span className="text-xl font-bold tracking-tight">아이톡</span>
+                            </div>
+                            
+                            <div className="hidden md:flex space-x-8 font-medium text-sm">
+                                <button onClick={() => setActiveTab('home')} className={activeTab === 'home' ? 'text-indigo-600' : 'text-slate-500'}>홈</button>
+                                <button onClick={() => setActiveTab('about')} className={activeTab === 'about' ? 'text-indigo-600' : 'text-slate-500'}>회사 소개</button>
+                                <button onClick={() => setActiveTab('program')} className={activeTab === 'program' ? 'text-indigo-600' : 'text-slate-500'}>솔루션 체험</button>
+                                <button onClick={() => setActiveTab('custom')} className={activeTab === 'custom' ? 'text-indigo-600' : 'text-slate-500'}>개별화 신청</button>
+                            </div>
+                        </div>
+                    </nav>
+
+                    <main className="animate-fade-in">
+                        {activeTab === 'program' && isTracking && (
+                            <div className={`fixed pointer-events-none z-[9999] rounded-full border-2 border-white shadow-lg transition-all duration-100 ${isMouthOpen ? 'w-10 h-10 bg-emerald-500 scale-125' : 'w-6 h-6 bg-rose-500'}`}
+                                 style={{ left: cursorPos.x, top: cursorPos.y, transform: 'translate(-50%, -50%)' }} />
+                        )}
+
+                        {activeTab === 'home' && (
+                            <section className="pt-20 pb-32 max-w-7xl mx-auto px-4 grid lg:grid-cols-2 gap-12 items-center">
+                                <div>
+                                    <h1 className="text-5xl lg:text-7xl font-black mb-8 leading-tight">
+                                        고개 짓 하나로<br /><span className="text-indigo-600">세상과 대화하세요.</span>
+                                    </h1>
+                                    <p className="text-lg text-slate-600 mb-10 leading-relaxed">아이톡은 AI 헤드 트래킹 기술을 활용한 혁신적인 보완대체의사소통(AAC) 솔루션을 제공합니다.</p>
+                                    <div className="flex gap-4">
+                                        <button onClick={() => setActiveTab('program')} className="px-8 py-4 bg-indigo-600 text-white font-bold rounded-2xl shadow-xl shadow-indigo-100">체험하기</button>
+                                        <button onClick={() => setActiveTab('custom')} className="px-8 py-4 bg-white border-2 border-slate-200 font-bold rounded-2xl">상담신청</button>
+                                    </div>
+                                </div>
+                                <div className="bg-indigo-900 rounded-3xl aspect-video overflow-hidden shadow-2xl relative flex items-center justify-center">
+                                    <div className="absolute inset-0 opacity-40 bg-[url('https://images.unsplash.com/photo-1573497620053-ea5310f94f17')] bg-cover bg-center"></div>
+                                    <Icon name="play" className="w-16 h-16 text-white" />
+                                </div>
+                            </section>
+                        )}
+
+                        {activeTab === 'program' && (
+                            <section className="py-20 flex flex-col items-center">
+                                {!isTracking ? (
+                                    <div className="bg-white p-12 rounded-3xl shadow-xl text-center max-w-md">
+                                        <h3 className="text-2xl font-bold mb-4">카메라 권한이 필요합니다</h3>
+                                        <button onClick={initTracking} disabled={loadingModel} className="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl">
+                                            {loadingModel ? "로딩 중..." : "체험 시작하기"}
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="w-full max-w-4xl px-4 flex flex-col gap-8 pb-40">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                            <button onClick={() => speak("네")} className="h-64 rounded-[2rem] bg-emerald-500 text-white text-7xl font-black shadow-xl border-b-8 border-emerald-700 active:border-b-0 active:translate-y-2">⭕ 네</button>
+                                            <button onClick={() => speak("아니오")} className="h-64 rounded-[2rem] bg-rose-500 text-white text-7xl font-black shadow-xl border-b-8 border-rose-700 active:border-b-0 active:translate-y-2">❌ 아니오</button>
+                                        </div>
+                                        {/* Controls */}
+                                        <div className="fixed bottom-0 inset-x-0 bg-white shadow-2xl p-6 flex flex-col md:flex-row items-center gap-6 z-50">
+                                            <video ref={videoRef} className="w-32 h-24 bg-black rounded-lg scale-x-[-1] object-cover" playsInline />
+                                            <div className="flex-1 grid grid-cols-3 gap-4 w-full text-[10px] font-bold">
+                                                <div>수평 <input type="range" min="1" max="5" step="0.1" value={sensitivity.x} onChange={e=>setSensitivity({...sensitivity, x: e.target.value})} className="w-full"/></div>
+                                                <div>수직 <input type="range" min="1" max="5" step="0.1" value={sensitivity.y} onChange={e=>setSensitivity({...sensitivity, y: e.target.value})} className="w-full"/></div>
+                                                <div>속도 <input type="range" min="0.01" max="0.3" step="0.01" value={smoothing} onChange={e=>setSmoothing(e.target.value)} className="w-full"/></div>
+                                            </div>
+                                            <button onClick={()=>isCalibrated.current=false} className="px-6 py-3 bg-slate-800 text-white rounded-xl font-bold">🎯 재설정</button>
+                                        </div>
+                                    </div>
+                                )}
+                            </section>
+                        )}
+                        
+                        {activeTab === 'about' && (
+                            <section className="py-20 max-w-4xl mx-auto px-4 text-center">
+                                <h3 className="text-4xl font-bold mb-8">아이톡의 미션</h3>
+                                <p className="text-xl text-slate-600 leading-relaxed">언어가 권리가 되는 세상을 꿈꿉니다. 누구나 자신의 생각과 마음을 전달할 수 있도록 가장 따뜻한 기술을 연구합니다.</p>
+                            </section>
+                        )}
+
+                        {activeTab === 'custom' && (
+                            <section className="py-20 max-w-xl mx-auto px-4">
+                                <div className="bg-white p-10 rounded-3xl shadow-2xl border border-slate-100">
+                                    <h4 className="text-2xl font-bold mb-8">맞춤 기능 상담</h4>
+                                    <form className="space-y-6" onSubmit={e=>e.preventDefault()}>
+                                        <input type="text" placeholder="성함" className="w-full p-4 bg-slate-50 border rounded-xl" />
+                                        <input type="tel" placeholder="연락처" className="w-full p-4 bg-slate-50 border rounded-xl" />
+                                        <select className="w-full p-4 bg-slate-50 border rounded-xl">
+                                            <option>시선 추적 커스텀</option>
+                                            <option>개인 보이스 복제</option>
+                                            <option>제스처 인식 추가</option>
+                                        </select>
+                                        <button className="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl">신청하기</button>
+                                    </form>
+                                </div>
+                            </section>
+                        )}
+                    </main>
+
+                    <footer className="bg-slate-900 text-slate-400 py-12 px-4 text-center mt-20">
+                        <p className="mb-4 text-white font-bold">아이톡 (iTalk)</p>
+                        <p className="text-sm">© 2024 아이톡 Inc. All rights reserved.</p>
+                    </footer>
+                </div>
+            );
         }
 
-        // UI 컨트롤 함수들
-        function updateSen(el, axis) {
-            const val = parseFloat(el.value);
-            document.getElementById(`val-${axis}`).innerText = val;
-            if (axis === 'x') sensitivityX = val;
-            if (axis === 'y') sensitivityY = val;
-        }
-
-        function updateSmooth(el) {
-            const val = parseFloat(el.value);
-            document.getElementById('val-s').innerText = val;
-            smoothing = val;
-        }
-
-        function recenter() {
-            isCalibrated = false;
-        }
-
-        // 음성 출력 및 효과 함수
-        function speakAndFlash(el, text) {
-            // TTS 음성 출력
-            if ('speechSynthesis' in window) {
-                // 기존 음성 취소 (중복 재생 방지)
-                window.speechSynthesis.cancel();
-                
-                const utterance = new SpeechSynthesisUtterance(text);
-                utterance.lang = 'ko-KR'; // 한국어 설정
-                utterance.rate = 1.0; // 속도
-                utterance.pitch = 1.0; // 톤
-                
-                window.speechSynthesis.speak(utterance);
-            }
-
-            // 시각적 효과 (눌림)
-            // Tailwind의 active 클래스와 transition이 처리하지만 JS로도 확실하게 피드백
-            // el.style.transform = 'scale(0.95)';
-            // setTimeout(() => el.style.transform = '', 150);
-        }
-
-        // 창 크기 변경 대응
-        window.addEventListener('resize', () => {
-            currentX = window.innerWidth / 2;
-            currentY = window.innerHeight / 2;
-        });
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
     </script>
 </body>
 </html>
