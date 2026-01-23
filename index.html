@@ -19,6 +19,8 @@
         input[type=range] { height: 4px; background: #e5e7eb; border-radius: 2px; outline: none; }
         .animate-fade-in { animation: fadeIn 0.7s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        /* 이미지 호버 효과 추가 */
+        .pc-guide-image:hover { transform: scale(1.02); transition: transform 0.2s ease; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900">
@@ -173,6 +175,15 @@
                 }
             };
 
+            // PC용 솔루션 새 창 열기 함수
+            const openPCSolution = () => {
+                const url = 'https://kwangilchoi-creator.github.io/headtracking/';
+                const width = window.screen.availWidth;
+                const height = window.screen.availHeight;
+                // 도구 모음 등을 최대한 제거한 팝업 형태
+                window.open(url, 'PCSolution', `width=${width},height=${height},top=0,left=0,toolbar=no,menubar=no,scrollbars=yes,resizable=yes,location=no,status=no`);
+            };
+
             return (
                 <div className="min-h-screen">
                     {/* Navigation */}
@@ -220,12 +231,38 @@
                         )}
 
                         {activeTab === 'program' && (
-                            <section className="py-20 flex flex-col items-center">
+                            <section className="py-20 flex flex-col items-center px-4">
                                 {!isTracking ? (
-                                    <div className="bg-white p-12 rounded-3xl shadow-xl text-center max-w-md">
-                                        <h3 className="text-2xl font-bold mb-4">카메라 권한이 필요합니다</h3>
-                                        <button onClick={initTracking} disabled={loadingModel} className="w-full py-4 bg-indigo-600 text-white font-bold rounded-2xl">
-                                            {loadingModel ? "로딩 중..." : "체험 시작하기"}
+                                    <div className="bg-white p-8 md:p-12 rounded-3xl shadow-xl text-center max-w-2xl w-full">
+                                        <h3 className="text-2xl font-bold mb-8">체험 환경을 선택해주세요</h3>
+                                        
+                                        {/* 안내 이미지 섹션 */}
+                                        <div className="grid grid-cols-2 gap-6 md:gap-10 mb-10">
+                                            <div className="flex flex-col items-center">
+                                                <div className="w-full aspect-square bg-slate-100 rounded-2xl mb-4 overflow-hidden border border-slate-200 flex items-center justify-center">
+                                                    <img src="ht.png" alt="QR 코드 안내" className="w-full h-full object-cover" />
+                                                </div>
+                                                <p className="font-bold text-indigo-700 text-sm md:text-base">[모바일 사용자]</p>
+                                            </div>
+                                            <div className="flex flex-col items-center group cursor-pointer" onClick={openPCSolution}>
+                                                <div className="w-full aspect-square bg-slate-100 rounded-2xl mb-4 overflow-hidden border border-slate-200 flex items-center justify-center transition-all group-hover:ring-4 group-hover:ring-indigo-300">
+                                                    <img src="mt.png" alt="PC 사용 안내" className="w-full h-full object-cover pc-guide-image" />
+                                                </div>
+                                                <p className="font-bold text-indigo-700 text-sm md:text-base group-hover:text-indigo-900">[PC 사용자]</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-slate-50 p-6 rounded-2xl mb-8 text-sm text-slate-600 text-left leading-relaxed">
+                                            <p className="font-bold mb-2">💡 시작 전 확인해주세요</p>
+                                            <ul className="list-disc list-inside space-y-1">
+                                                <li>카메라 권한 승인이 필요합니다.</li>
+                                                <li>얼굴이 화면 중앙에 오도록 위치해주세요.</li>
+                                                <li>입을 크게 벌리면 선택 기능이 작동합니다.</li>
+                                            </ul>
+                                        </div>
+
+                                        <button onClick={initTracking} disabled={loadingModel} className="w-full py-5 bg-indigo-600 text-white font-bold rounded-2xl shadow-lg shadow-indigo-100 transition-all hover:bg-indigo-700">
+                                            {loadingModel ? "솔루션 로딩 중..." : "웹 브라우저에서 바로 체험하기"}
                                         </button>
                                     </div>
                                 ) : (
